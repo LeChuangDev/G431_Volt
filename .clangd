@@ -1,0 +1,48 @@
+# =====================================================================
+#  .clangd —— 告诉 IDE 内置的 clangd 语言服务"用什么参数解析本工程"
+#
+#  背景：真正的编译由 arm-none-eabi-gcc + Ninja 完成，clangd 只做静态
+#  分析（编辑器里的红线/补全/跳转）。它默认按主机 PC 环境分析，既不知道
+#  CMSIS 头在哪，也不知道器件宏 STM32G431xx，于是满屏标红。
+#
+#  数据源优先级：compile_commands.json（CMake 导出的【真实编译命令】）
+#    已在 CMakePresets.json 里设 CMAKE_EXPORT_COMPILE_COMMANDS=ON，
+#    生成位置：build/debug/compile_commands.json
+#
+#  本文件只做两件 compile_commands 覆盖不到的事：
+#    1) 指定编译数据库目录（debug 预设）；
+#    2) 给 clang 补 ARM 目标三元组 + GCC/newlib 的系统头目录
+#       （clang 不会自动去 arm-none-eabi-gcc 安装目录找 stdint.h 等）。
+#
+#  换芯片时：本文件通常【不用动】——器件宏和外设头路径都来自
+#  compile_commands.json；只有工具链安装路径变了才改下面的 isystem。
+# =====================================================================
+
+CompileFlags:
+  # 编译数据库相对本文件（工程根）的位置
+  CompilationDatabase: build/debug
+
+  Add:
+    # 让 clang 按 ARM 裸机目标解析（识别 -mcpu=cortex-m4 / -mthumb /
+    # -mfpu=fpv4-sp-d16 / -mfloat-abi=hard 这些交叉编译标志）
+    - "--target=arm-none-eabi"
+
+    # GCC 自带固定头（stddef.h / stdbool.h / stdarg.h 等）
+    - "-isystem"
+    - "C:/EmbeddedTools/arm-gcc/lib/gcc/arm-none-eabi/15.3.1/include"
+    - "-isystem"
+    - "C:/EmbeddedTools/arm-gcc/lib/gcc/arm-none-eabi/15.3.1/include-fixed"
+    # newlib 的 C 标准库头（stdint.h / stdio.h / string.h …）
+    - "-isystem"
+    - "C:/EmbeddedTools/arm-gcc/arm-none-eabi/include"
+
+---
+# 第二个片段：第三方官方源码（CMSIS / HAL / 中间件）只屏蔽告警噪音，
+# 红线聚焦我们自己写的 App / BSP / Core（必须用 --- 与上一片段分开，
+# 否则 If 会把上面的编译参数也限制成仅对 Drivers 生效）
+If:
+  PathMatch:
+    - "Drivers/.*"
+    - "Middlewares/.*"
+Diagnostics:
+  Suppress: "*"

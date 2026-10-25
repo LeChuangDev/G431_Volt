@@ -1,0 +1,36 @@
+# ===== 构建输出目录（debug/release 两套产物都在 build/ 下）=====
+build/
+CMakeUserPresets.json
+
+# ===== 编译中间文件与固件产物 =====
+*.o
+*.d
+*.su
+*.map
+*.list
+*.elf
+*.hex
+*.bin
+*.dis
+*.lst
+
+# ===== 调试器 / 编辑器 / 系统杂项 =====
+.vscode/ipch/
+*.user
+*.uvguix.*
+*.bak
+JLinkLog.txt
+openocd.log
+Thumbs.db
+.DS_Store
+
+# ===== 大体积参考资料一般不入库（需要时改成 git submodule 或 LFS）=====
+Doc/*
+!Doc/.gitkeep
+
+# ===== 构建系统脚本必须入库 =====
+# 仓库根目录的 .gitignore 有一条 *.cmake，会把这些关键文件排除掉。
+# 一旦换机器/重新 clone，工程就少了工具链、芯片参数和烧录入口，无法编译。
+# 子目录 .gitignore 的规则优先，这里把它们重新纳入版本管理。
+!cmake/*.cmake
+!tools/*.cmake

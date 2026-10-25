@@ -1,0 +1,47 @@
+# =====================================================================
+# .clang-format  —  本工程统一的 C/C++ 代码风格
+# 适用范围：App / BSP / Drivers(External) 等自己编写的代码
+# 注意：Drivers/STM32G4xx_HAL_Driver、Middlewares/ 下的第三方源码
+#       【原样保留、不要格式化】，避免与官方升级产生海量 diff。
+# 用法：clang-format -i App/**/*.c BSP/**/*.c
+# =====================================================================
+
+# 基于 LLVM 风格，再按嵌入式常见习惯（Allman 大括号、4 空格缩进）覆盖
+BasedOnStyle: LLVM
+Language: Cpp
+
+# ---- 缩进 ----
+IndentWidth: 4          # 每层缩进 4 个空格
+TabWidth: 4
+UseTab: Never           # 一律用空格，不允许 Tab
+ContinuationIndentWidth: 4
+
+# ---- 大括号：Allman 风格（左大括号另起一行，与 ST/CubeMX 生成代码一致）----
+BreakBeforeBraces: Allman
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# ---- 指针 / 引用的 * 靠变量名：uint8_t *p ----
+PointerAlignment: Right
+
+# ---- 行宽 ----
+ColumnLimit: 120        # 超过 120 列才换行；0 = 不限制
+
+# ---- 函数返回类型独占一行与否 ----
+AlwaysBreakAfterDefinitionReturnType: None
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+
+# ---- 头文件排序：I 表示按字母序，不强制分组 ----
+SortIncludes: false     # 手工维护 include 顺序（设备头/工程头常有包含依赖）
+
+# ---- switch 的 case 不额外缩进 ----
+IndentCaseLabels: true
+IndentPPDirectives: BeforeHash   # 预处理宏按嵌套层级缩进
+
+# ---- 注释 ----
+AlignTrailingComments: true
+SpacesBeforeTrailingComments: 2
+
+# ---- 末尾换行 / 空格清理 ----
+FixNamespaceComments: true
