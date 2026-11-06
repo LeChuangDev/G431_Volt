@@ -1,0 +1,136 @@
+# 统一固件 CI：一份文件覆盖 STM32 / GD32 / GW32 / AT32 / ESP-IDF
+# 触发规则（已优化：提交 main 不再自动编译 / 出固件）：
+#   1) 推送 v* 标签        -> 编译全部目标并发布 GitHub Release
+#   2) 开 / 更新 PR 到 main -> 仅在干净环境编译校验（不发布、不出固件）
+#   3) 手动 workflow_dispatch -> 触发一次编译校验（调试用）
+# 多版本：matrix.include 里每行一个目标，打 tag 一次自动编译所有固件
+name: Firmware Build & Release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read        # 默认只读；只有 release job 需要写权限（最小权限原则）
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}  # PR 推新提交时取消旧运行，省 CI 时长
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    # 只有带 container 的矩阵项（ESP 系列）才进官方 IDF 容器；其余直接在 runner 上编译
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false          # 一个目标失败不影响其它目标继续编译
+      matrix:
+        include:
+          # ---- ARM Cortex-M 系列：共用 gcc-arm-none-eabi + 同一份 cmake/arm-none-eabi.cmake ----
+          # family 标记芯片厂商；name 用于产物命名；cmake_args 传不同的板级参数
+          - name: stm32-nucleo-f407
+            family: stm32
+            cmake_args: "-DBOARD=NUCLEO_F407 -DCMAKE_BUILD_TYPE=Release"
+          - name: stm32-bluepill-f103
+            family: stm32
+            cmake_args: "-DBOARD=BLUEPILL_F103 -DCMAKE_BUILD_TYPE=Release"
+          - name: gd32-f303
+            family: gd32
+            cmake_args: "-DBOARD=GD32F303 -DCMAKE_BUILD_TYPE=Release"
+          - name: gw32-f303
+            family: gw32
+            cmake_args: "-DBOARD=GW32F303 -DCMAKE_BUILD_TYPE=Release"
+          - name: at32-f403
+            family: at32
+            cmake_args: "-DBOARD=AT32F403 -DCMAKE_BUILD_TYPE=Release"
+          # 想加更多板子/型号，直接在这里复制一行改 name / family / cmake_args 即可
+          # ---- ESP-IDF 系列：用官方容器，自带完整工具链 ----
+          - name: esp32
+            family: esp
+            target: esp32
+            container: "espressif/idf:v5.3"
+          - name: esp32s3
+            family: esp
+            target: esp32s3
+            container: "espressif/idf:v5.3"
+          - name: esp32c3
+            family: esp
+            target: esp32c3
+            container: "espressif/idf:v5.3"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive   # 固件项目常把厂商 HAL 作为子模块，递归拉取避免编译缺文件
+
+      # ---------- ARM 系列（stm32 / gd32 / gw32 / at32）----------
+      - name: Install ARM GCC toolchain
+        if: matrix.family != 'esp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi cmake ninja-build ccache
+
+      - name: ccache (加速重复编译)
+        if: matrix.family != 'esp'
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ${{ matrix.name }}
+
+      - name: Build ARM firmware
+        if: matrix.family != 'esp'
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            ${{ matrix.cmake_args }}
+          cmake --build build --target firmware
+
+      # ---------- ESP-IDF 系列 ----------
+      - name: Build ESP firmware
+        if: matrix.family == 'esp'
+        env:
+          IDF_TARGET: ${{ matrix.target }}
+        run: |
+          . "${IDF_PATH}/export.sh"
+          idf.py -B "build-${IDF_TARGET}" set-target "${IDF_TARGET}"
+          idf.py -B "build-${IDF_TARGET}" build
+
+      # ---------- 上传产物（ARM 的 build/ 与 ESP 的 build-<target>/ 都覆盖）----------
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.name }}
+          path: |
+            build/*.bin
+            build/*.elf
+            build/*.hex
+            build-${{ matrix.target }}/*.bin
+            build-${{ matrix.target }}/*.elf
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    needs: build               # 等所有目标编译完再统一发布，避免并发抢占 Release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write          # 仅此 job 需要写权限来创建 Release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect firmware files
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.hex' \) -exec cp {} release/ \;
+          ls -lh release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true   # 自动根据 commit 生成 release notes
